@@ -166,9 +166,12 @@ class TodoListScreen extends StatefulWidget {
 
 class TodoListScreenState extends State<TodoListScreen> {
   List<dynamic> todos = [];
+  List<dynamic> filteredTodos = [];
   bool isLoading = true;
   final Box todoBox = Hive.box('todos'); // Hive storage
   final Box settingsBox = Hive.box('settings'); // Hive box for theme
+  String filter = "All";
+
   @override
   void initState() {
     super.initState();
@@ -176,11 +179,25 @@ class TodoListScreenState extends State<TodoListScreen> {
     fetchTodos();
   }
 
+  //apply Filter Based on User Selection
+  void applyFilter() {
+    setState(() {
+      if (filter == "Completed") {
+        filteredTodos = todos.where((todo) => todo['completed']).toList();
+      } else if (filter == 'Pending') {
+        filteredTodos = todos.where((todo) => !todo['completed']).toList();
+      } else {
+        filteredTodos = todos;
+      }
+    });
+  }
+
   //Load saved todos from Hive
   void loadTodos() {
     final savedTodos =  todoBox.get('todoList', defaultValue: []);
     setState(() {
       todos = List<dynamic>.from(savedTodos);
+      applyFilter();
       isLoading = false;
     });
   }
@@ -188,8 +205,10 @@ class TodoListScreenState extends State<TodoListScreen> {
 Future<void> fetchTodos() async {
     final response = await http.get(Uri.parse("https://jsonplaceholder.typicode.com/todos"));
     if (response.statusCode == 200) {
+      final List<dynamic> fetchedTodos = jsonDecode(response.body); // Convert JSON response to List
     setState(() {
-      todos = jsonDecode(response.body); // Convert JSON response to List
+      todos = fetchedTodos;
+      applyFilter();
       isLoading = false;
     });
     todoBox.put("todoList", fetchTodos); // Save to Hive
@@ -206,6 +225,7 @@ Future<void> fetchTodos() async {
     setState(() {
       todos[index]["completed"] = !todos[index]["completed"];
       todoBox.put("todoList", todos); // Update Hive storage
+      applyFilter();
     });
   }
   
@@ -215,6 +235,7 @@ Future<void> fetchTodos() async {
       print(index);
       todos.removeAt(index);
       todoBox.put("todoList", todos); // Update Hive storage
+      applyFilter();
     });
   }
   
@@ -224,7 +245,9 @@ Future<void> fetchTodos() async {
     setState(() {
       todos.insert(0, {"id": DateTime.now().microsecondsSinceEpoch, "title": title, "completed": false});
       todoBox.put("todoList", todos);
+      applyFilter();
     });
+    Navigator.pop(context);
   }
 
   // Edit a To-Do
@@ -272,7 +295,6 @@ Future<void> fetchTodos() async {
           TextButton(onPressed: () {
               addTodo(todoController.text); // Add the todo
               todoController.clear(); // clear the TextField
-              Navigator.pop(context); // Close the dialog
       }, child: Text("Add")
     )
         ],
@@ -290,16 +312,36 @@ Future<void> fetchTodos() async {
   Widget build(BuildContext context) {
     bool isDarkMode = settingsBox.get('darkMode', defaultValue: false);
     return Scaffold(
-      appBar: AppBar(title: Text("To-Do List (Offline Mode)"),
+      appBar: AppBar(title: Text("To-Do List (Filter & Sort)"),
         actions: [
+          //Filter Dropdown
+          DropdownButton<String>(
+            value: filter,
+            dropdownColor: isDarkMode ? Colors.grey[900] : Colors.white,
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                setState(() {
+                  filter = newValue;
+                  applyFilter();
+                });
+              }
+            },
+            items: ["All", "Completed", "Pending"]
+                .map<DropdownMenuItem<String>>((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value, style: TextStyle(color: isDarkMode ? Colors.white : Colors.black))
+              );
+            }).toList(),
+          ),
           IconButton(onPressed: toggleDarkMode, icon: Icon(isDarkMode ? Icons.dark_mode: Icons.light_mode)),
           IconButton(onPressed: fetchTodos, icon: Icon(Icons.refresh))]),
       body: isLoading ?
       Center(child: CircularProgressIndicator()) :
       RefreshIndicator(
         onRefresh: fetchTodos,
-        child: ListView.builder(itemCount: todos.length, itemBuilder: (context, index) {
-          var todo = todos[index];
+        child: ListView.builder(itemCount: filteredTodos.length, itemBuilder: (context, index) {
+          var todo = filteredTodos[index];
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             child: ListTile(
@@ -309,20 +351,23 @@ Future<void> fetchTodos() async {
                   todo["completed"] ? Icons.check_circle : Icons.circle_outlined,
                   color: todo["completed"] ? Colors.green : Colors.red,
                 ),
-                onPressed: () => toggleComplete(index), //Toggle Status **
+                onPressed: () => toggleComplete(todos.indexOf(todo)), //Correct index for update
               ),
-              trailing: IconButton(onPressed: () => deleteTodo(index), icon: Icon(Icons.delete, color: Colors.red,)),
+              trailing: IconButton(onPressed: () => deleteTodo(todos.indexOf(todo)), // Correct index for delete
+                  icon: Icon(Icons.delete, color: Colors.red,)),
               onTap: () {
-                Navigator.push(context,
+                Navigator.push(
+                    context,
                     MaterialPageRoute(builder: (context) => TodoDetailScreen(todo))
                 );
               },
-              onLongPress: () => editTodo(index), // Long Press to edit
+              onLongPress: () => editTodo(todos.indexOf(todo)), // Edit support
             ),
           );
         }),
       ),
-      floatingActionButton: FloatingActionButton(onPressed: showAddTodoDialog,
+      floatingActionButton: FloatingActionButton(
+          onPressed: showAddTodoDialog,
         child: Icon(Icons.add)),
     );
   }
