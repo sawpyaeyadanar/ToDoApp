@@ -167,27 +167,53 @@ class TodoListScreen extends StatefulWidget {
 class TodoListScreenState extends State<TodoListScreen> {
   List<dynamic> todos = [];
   List<dynamic> filteredTodos = [];
+  List<dynamic> searchText = [];
   bool isLoading = true;
   final Box todoBox = Hive.box('todos'); // Hive storage
   final Box settingsBox = Hive.box('settings'); // Hive box for theme
-  String filter = "All";
+  String filter = "All"; // Filter type: All, Completed, Pending
+  TextEditingController searchController = TextEditingController(); // Search Controller
 
   @override
   void initState() {
     super.initState();
     loadTodos();
     fetchTodos();
+    searchController.addListener(searchTodos);
+  }
+
+  void searchTodos() {
+    String query = searchController.text.toLowerCase();
+    setState(() {
+      if (query.isEmpty) {
+        searchText = [];
+        filteredTodos = List.from(todos); // show all todos if query if empty
+      } else {
+        filteredTodos = todos.where((todo) {
+          return todo['title'].toLowerCase().contains(query);
+        }).toList();
+        searchText = filteredTodos;
+      }
+    });
   }
 
   //apply Filter Based on User Selection
   void applyFilter() {
     setState(() {
+      searchTodos();
       if (filter == "Completed") {
-        filteredTodos = todos.where((todo) => todo['completed']).toList();
+        if (searchText.isNotEmpty ) {
+          filteredTodos = searchText.where((todo) => todo['completed']).toList();
+        } else {
+          filteredTodos = filteredTodos.where((todo) => todo['completed']).toList();
+        }
+
       } else if (filter == 'Pending') {
-        filteredTodos = todos.where((todo) => !todo['completed']).toList();
-      } else {
-        filteredTodos = todos;
+        if (searchText.isNotEmpty ) {
+          filteredTodos = searchText.where((todo) => !todo['completed']).toList();
+        } else {
+          filteredTodos = filteredTodos.where((todo) => !todo['completed']).toList();
+        }
       }
     });
   }
@@ -308,12 +334,26 @@ Future<void> fetchTodos() async {
     settingsBox.put('darkMode', !isDarkMode);
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     bool isDarkMode = settingsBox.get('darkMode', defaultValue: false);
     return Scaffold(
       appBar: AppBar(title: Text("To-Do List (Filter & Sort)"),
         actions: [
+          // Search Bar
+          SizedBox(
+            width: 200,
+            child: TextField(
+              controller: searchController,
+                decoration: InputDecoration(
+                  hintText: "Search...",
+                  border: InputBorder.none,
+                  prefixIcon: Icon(Icons.search)
+                ),
+            ),
+          ),
           //Filter Dropdown
           DropdownButton<String>(
             value: filter,
@@ -321,6 +361,7 @@ Future<void> fetchTodos() async {
             onChanged: (String? newValue) {
               if (newValue != null) {
                 setState(() {
+                  print(newValue);
                   filter = newValue;
                   applyFilter();
                 });
